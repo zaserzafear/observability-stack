@@ -29,6 +29,7 @@ services:
       - minio-data:/data
     ports:
       - "9070:9070"
+    restart: unless-stopped
 
   createbuckets:
     image: minio/mc
@@ -45,9 +46,11 @@ services:
       /usr/bin/mc mb -p monitoring-store/mimir;
       /usr/bin/mc mb -p monitoring-store/loki;
       /usr/bin/mc mb -p monitoring-store/loki-ruler;
+      /usr/bin/mc mb -p monitoring-store/tempo;
       /usr/bin/mc anonymous set download monitoring-store/mimir;
       /usr/bin/mc anonymous set download monitoring-store/loki;
       /usr/bin/mc anonymous set download monitoring-store/loki-ruler;
+      /usr/bin/mc anonymous set download monitoring-store/tempo;
       exit 0;"
 
   loki_backend:
@@ -64,6 +67,7 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    restart: unless-stopped
 
   loki_reader:
     image: grafana/loki
@@ -79,6 +83,7 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    restart: unless-stopped
 
   loki_writer:
     image: grafana/loki
@@ -94,6 +99,7 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    restart: unless-stopped
 
   loki_gateway:
     image: nginx:latest
@@ -106,6 +112,7 @@ services:
     command: "nginx -g 'daemon off;'"
     ports:
       - 3100:3100
+    restart: unless-stopped
 
   otel_collector:
     image: otel/opentelemetry-collector-contrib:latest
@@ -118,10 +125,10 @@ services:
     ports:
       - "4317:4317"
       - "4318:4318"
+    restart: unless-stopped
 
   mysql:
     image: mysql:latest
-    restart: always
     environment:
       MYSQL_HOST: mysql
       MYSQL_ROOT_PASSWORD: ${GF_DATABASE_PASSWORD:-grafanapass}
@@ -130,12 +137,11 @@ services:
       MYSQL_PASSWORD: ${GF_DATABASE_PASSWORD:-grafanapass}
     volumes:
       - mysql-data:/var/lib/mysql
+    restart: unless-stopped
 
   grafana:
     build:
       context: ./grafana
-      dockerfile: Dockerfile
-    restart: always
     depends_on:
       - mysql
     pull_policy: always
@@ -156,11 +162,43 @@ services:
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini
     ports:
       - "3000:3000"
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:latest
+    volumes:
+      - ./config/tempo.yml:/etc/tempo/tempo.yaml
+    command: -config.file=/etc/tempo/tempo.yaml --config.expand-env=true --target=all
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT_HOST}
+    depends_on:
+      minio:
+        condition: service_healthy
+    ports:
+      - "3200:3200" # Tempo API
+    restart: unless-stopped
+
+  mimir:
+    image: grafana/mimir:latest
+    volumes:
+      - ./config/mimir.yml:/etc/mimir/mimir.yaml
+      - mimir-data:/data
+    command: -config.file=/etc/mimir/mimir.yaml --config.expand-env=true
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT_HOST}
+    depends_on:
+      minio:
+        condition: service_healthy
+    ports:
+      - "9009:9009" # Mimir API
+    restart: unless-stopped
 
 volumes:
   mysql-data:
   grafana-data:
-  mimir_backend-data:
-  mimir_reader-data:
-  mimir_writer-data:
+  mimir-data:
   minio-data:

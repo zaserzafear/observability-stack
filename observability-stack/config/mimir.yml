@@ -1,0 +1,14 @@
+server:
+  http_listen_port: 9009
+
+blocks_storage:
+  backend: s3
+  s3:
+    endpoint: ${MINIO_ENDPOINT}
+    bucket_name: mimir
+    access_key_id: ${MINIO_ROOT_USER}
+    secret_access_key: ${MINIO_ROOT_PASSWORD}
+    insecure: true
+
+compactor:
+  data_dir: /data/compactor

@@ -9,3 +9,13 @@ datasources:
       httpHeaderName1: "X-Scope-OrgID"
     secureJsonData:
       httpHeaderValue1: "monitoring-org"
+
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+
+  - name: Mimir
+    type: prometheus
+    access: proxy
+    url: http://mimir:9009/prometheus

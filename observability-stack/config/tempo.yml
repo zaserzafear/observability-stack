@@ -1,0 +1,21 @@
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+        http:
+
+storage:
+  trace:
+    backend: s3
+    s3:
+      endpoint: ${MINIO_ENDPOINT}
+      bucket: tempo
+      access_key: ${MINIO_ROOT_USER}
+      secret_key: ${MINIO_ROOT_PASSWORD}
+      insecure: true
+    wal:
+      path: /tmp/tempo/wal
