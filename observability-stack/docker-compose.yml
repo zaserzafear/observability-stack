@@ -122,6 +122,8 @@ services:
     environment:
       LOKI_WRITER_ENDPOINT: http://loki_writer:3100
       LOKI_ORG_ID: ${LOKI_ORG_ID}
+      TEMPO_ENDPOINT: tempo:4317
+      MIMIR_ENDPOINT: http://mimir:9009
     ports:
       - "4317:4317"
       - "4318:4318"

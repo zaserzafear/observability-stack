@@ -10,16 +10,39 @@ processors:
   batch:
 
 exporters:
+  # Debug exporter
   debug:
     verbosity: detailed
+
+  # Logs → Loki
   otlphttp/logs:
     endpoint: "${env:LOKI_WRITER_ENDPOINT}/otlp"
     headers:
       X-Scope-OrgID: ${env:LOKI_ORG_ID}
+
+  # Traces → Tempo
+  otlp/traces:
+    endpoint: "${env:TEMPO_ENDPOINT}"
+    tls:
+      insecure: true
+
+  # Metrics → Mimir
+  otlphttp/metrics:
+    endpoint: "${env:MIMIR_ENDPOINT}/otlp"
 
 service:
   pipelines:
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlphttp/logs, debug]
+      exporters: [otlphttp/logs]
+
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/traces]
+
+    # metrics:
+    #   receivers: [otlp]
+    #   processors: [batch]
+    #   exporters: [otlphttp/metrics]
