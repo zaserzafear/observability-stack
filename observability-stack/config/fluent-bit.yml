@@ -1,0 +1,57 @@
+service:
+  flush: 1
+  log_level: debug
+
+pipeline:
+  inputs:
+    - name: forward
+      listen: 0.0.0.0
+      port: 24224
+      processors:
+        logs:
+          # - name: opentelemetry_envelope
+          - name: lua
+            call: add_to_resource_attributes
+            code: |
+              function add_to_resource_attributes(tag, ts, record)
+                  local svc_name = record["service.name"]
+                  local cid = record["container_id"]
+                  local cname = record["container_name"]
+                  local prj_name = record["project.name"]
+                  local deply_env = record["deployment.environment"]
+
+                  -- Create resource.attributes table if not already present
+                  if record["resource"] == nil then
+                      record["resource"] = {}
+                  end
+                  if record["resource"]["attributes"] == nil then
+                      record["resource"]["attributes"] = {}
+                  end
+
+                  -- Add values to resource.attributes
+                  if svc_name and svc_name ~= "" then
+                      record["resource"]["attributes"]["service.name"] = svc_name
+                  end
+                  if cid then
+                      record["resource"]["attributes"]["container.id"] = cid
+                  end
+                  if cname then
+                      record["resource"]["attributes"]["container.name"] = cname
+                  end
+                  if prj_name then
+                      record["resource"]["attributes"]["project.name"] = prj_name
+                  end
+                  if deply_env then
+                      record["resource"]["attributes"]["deployment.environment"] = deply_env
+                  end
+
+                  return 1, ts, record
+              end
+  outputs:
+    - name: opentelemetry
+      match: "*"
+      host: ${OTLP_HOSTNAME}
+      port: ${OTLP_PORT}
+      http2: off
+      grpc: On
+      header: X-Scope-OrgID ${LOKI_ORG_ID}

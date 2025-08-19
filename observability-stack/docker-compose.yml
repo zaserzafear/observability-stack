@@ -1,0 +1,166 @@
+services:
+  fluentbit:
+    image: fluent/fluent-bit:latest
+    container_name: fluentbit
+    volumes:
+      - ./config/fluent-bit.yml:/fluent-bit/etc/fluent-bit.yml
+    command: -c /fluent-bit/etc/fluent-bit.yml
+    environment:
+      OTLP_HOSTNAME: otel_collector
+      OTLP_PORT: 4317
+      LOKI_ORG_ID: ${LOKI_ORG_ID}
+    ports:
+      - "24224:24224"
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    command: server --console-address ":9070" /data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9070:9070"
+
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set monitoring-store $MINIO_ENDPOINT $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD;
+      /usr/bin/mc mb -p monitoring-store/mimir;
+      /usr/bin/mc mb -p monitoring-store/loki;
+      /usr/bin/mc mb -p monitoring-store/loki-ruler;
+      /usr/bin/mc anonymous set download monitoring-store/mimir;
+      /usr/bin/mc anonymous set download monitoring-store/loki;
+      /usr/bin/mc anonymous set download monitoring-store/loki-ruler;
+      exit 0;"
+
+  loki_backend:
+    image: grafana/loki
+    volumes:
+      - ./config/loki.yml:/loki/loki-config.yaml
+    command: --config.file=/loki/loki-config.yaml --config.expand-env=true --target=backend
+    environment:
+      MEMBERLIST: loki_backend
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      LOKI_BACKEND_ENDPOINT: ${LOKI_BACKEND_ENDPOINT}
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  loki_reader:
+    image: grafana/loki
+    volumes:
+      - ./config/loki.yml:/loki/loki-config.yaml
+    command: --config.file=/loki/loki-config.yaml --config.expand-env=true --target=read
+    environment:
+      MEMBERLIST: loki_reader
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      LOKI_BACKEND_ENDPOINT: ${LOKI_BACKEND_ENDPOINT}
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  loki_writer:
+    image: grafana/loki
+    volumes:
+      - ./config/loki.yml:/loki/loki-config.yaml
+    command: --config.file=/loki/loki-config.yaml --config.expand-env=true --target=write
+    environment:
+      MEMBERLIST: loki_writer
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      LOKI_BACKEND_ENDPOINT: ${LOKI_BACKEND_ENDPOINT}
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  loki_gateway:
+    image: nginx:latest
+    volumes:
+      - ./config/loki-gateway.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - "loki_backend"
+      - "loki_reader"
+      - "loki_writer"
+    command: "nginx -g 'daemon off;'"
+    ports:
+      - 3100:3100
+
+  otel_collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    volumes:
+      - ./config/otel-config.yaml:/etc/otelcol-contrib/config.yaml
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      LOKI_WRITER_ENDPOINT: http://loki_writer:3100
+      LOKI_ORG_ID: ${LOKI_ORG_ID}
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
+  mysql:
+    image: mysql:latest
+    restart: always
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_ROOT_PASSWORD: ${GF_DATABASE_PASSWORD:-grafanapass}
+      MYSQL_DATABASE: ${GF_DATABASE_NAME:-grafana}
+      MYSQL_USER: ${GF_DATABASE_USER:-grafana_user}
+      MYSQL_PASSWORD: ${GF_DATABASE_PASSWORD:-grafanapass}
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  grafana:
+    build:
+      context: ./grafana
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      - mysql
+    pull_policy: always
+    environment:
+      GF_SERVER_DOMAIN: localhost
+      GF_SERVER_ROOT_URL: http://localhost
+      GF_SERVER_PROTOCOL: http
+      GF_DATABASE_TYPE: mysql
+      GF_DATABASE_HOST: mysql
+      GF_DATABASE_NAME: ${GF_DATABASE_NAME:-grafana}
+      GF_DATABASE_USER: ${GF_DATABASE_USER:-grafana_user}
+      GF_DATABASE_PASSWORD: ${GF_DATABASE_PASSWORD:-grafanapass}
+      GF_SECURITY_ADMIN_USERNAME: ${GF_SECURITY_ADMIN_USERNAME:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-grafana}
+    volumes:
+      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yaml
+      - grafana-data:/var/lib/grafana
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+    ports:
+      - "3000:3000"
+
+volumes:
+  mysql-data:
+  grafana-data:
+  mimir_backend-data:
+  mimir_reader-data:
+  mimir_writer-data:
+  minio-data:
