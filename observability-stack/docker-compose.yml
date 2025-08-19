@@ -166,6 +166,15 @@ services:
       - "3000:3000"
     restart: unless-stopped
 
+  memcached:
+    image: memcached:latest
+    environment:
+      MEMCACHED_MAX_MEMORY: 64m
+      MEMCACHED_THREADS: 4
+    ports:
+      - "11211:11211"
+    restart: unless-stopped
+
   tempo:
     image: grafana/tempo:latest
     volumes:
@@ -178,6 +187,8 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+      memcached:
+        condition: service_started
     ports:
       - "3200:3200" # Tempo API
     restart: unless-stopped

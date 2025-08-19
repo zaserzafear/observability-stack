@@ -1,6 +1,15 @@
 server:
   http_listen_port: 3200
 
+cache:
+  background:
+    writeback_goroutines: 5
+  caches:
+    - roles:
+        - frontend-search
+      memcached:
+        host: memcached:11211
+
 distributor:
   receivers:
     otlp:
@@ -21,3 +30,8 @@ storage:
       insecure: true
     wal:
       path: /tmp/tempo/wal
+
+overrides:
+  defaults:
+    compaction:
+      block_retention: 1y
